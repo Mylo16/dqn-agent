@@ -31,6 +31,7 @@ class DQNAgent:
         self.epsilon_decay = 0.995
         self.learning_rate = 0.001
         self.model = self._build_model()
+        self.last_action = None
 
     def _build_model(self):
         # Neural Net for Deep-Q learning Model
@@ -46,10 +47,16 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state):
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        act_values = self.model.predict(state)
-        return np.argmax(act_values[0])  # returns action
+        if self.last_action == 0:
+            # If the last action was idle, the next action must be conventional charging
+            action = 1
+        elif np.random.rand() <= self.epsilon:
+            action = random.randrange(self.action_size)
+        else:
+            act_values = self.model.predict(state)
+            action = np.argmax(act_values[0])  # returns action
+        self.last_action = action  # Update last action
+        return action
 
     def replay(self, batch_size):
         minibatch = random.sample(self.memory, batch_size)
@@ -109,3 +116,4 @@ if __name__ == "__main__":
         print(f"Episode: {e} Action Distribution: {action_counts}")
         if e % 10 == 0:
             agent.save("./save/evcharging-dqn.weights.h5")
+            print("Save")

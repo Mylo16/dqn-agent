@@ -271,3 +271,225 @@ gym.envs.registration.register(
 
 24. **Environment Registration**:
     - Registers the `EVChargingEnv` environment with Gym, making it available for use by specifying its ID and entry point.
+
+
+
+
+
+## The following explains the dqn-agent.py file:
+
+### Imports and Environment Registration
+
+```python
+import random
+import os
+import gym
+import numpy as np
+from collections import deque
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.optimizers import Adam
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.get_logger().setLevel('ERROR')
+
+from gym.envs.registration import register
+
+register(
+    id='EVCharging-v0',
+    entry_point='ev_charging_env:EVChargingEnv',
+)
+```
+
+1. **Imports**: 
+    - Various libraries are imported:
+        - `random`, `os`, and `numpy` for random number generation, file operations, and numerical operations, respectively.
+        - `gym` for reinforcement learning environment.
+        - `deque` from `collections` for memory buffer.
+        - `tensorflow` and related modules for neural network operations.
+
+2. **TensorFlow Logging Configuration**:
+    - Configures TensorFlow to reduce logging verbosity to minimize unnecessary log messages.
+
+3. **Environment Registration**:
+    - Registers the custom `EVChargingEnv` environment with Gym.
+
+### Constants and Agent Class
+
+```python
+EPISODES = 1000
+
+class DQNAgent:
+    def __init__(self, state_size, action_size):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.memory = deque(maxlen=2000)
+        self.gamma = 0.95    # discount rate
+        self.epsilon = 1.0  # exploration rate
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995
+        self.learning_rate = 0.001
+        self.model = self._build_model()
+        self.last_action = None
+```
+
+4. **Constants**:
+    - `EPISODES = 1000`: Defines the number of training episodes.
+
+5. **DQNAgent Class Initialization**:
+    - Initializes the DQN agent with several attributes:
+        - `state_size` and `action_size` define the size of the state and action spaces.
+        - `memory` is a deque used to store experience tuples.
+        - `gamma` is the discount factor.
+        - `epsilon` is the exploration rate, with `epsilon_min` and `epsilon_decay` controlling its decay.
+        - `learning_rate` for the neural network optimizer.
+        - `model` is the neural network model created by `_build_model`.
+        - `last_action` stores the last action taken by the agent.
+
+### Neural Network Model
+
+```python
+    def _build_model(self):
+        model = Sequential()
+        model.add(Dense(24, input_dim=self.state_size, activation='relu'))
+        model.add(Dense(24, activation='relu'))
+        model.add(Dense(self.action_size, activation='linear'))
+        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+        return model
+```
+
+6. **Model Definition**:
+    - Defines a simple feedforward neural network with three layers:
+        - Input layer with 24 neurons and ReLU activation.
+        - Hidden layer with 24 neurons and ReLU activation.
+        - Output layer with `action_size` neurons and linear activation.
+    - Compiles the model with mean squared error loss and Adam optimizer.
+
+### Memory and Action Selection
+
+```python
+    def memorize(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done))
+
+    def act(self, state):
+        if self.last_action == 0:
+            action = 1
+        elif np.random.rand() <= self.epsilon:
+            action = random.randrange(self.action_size)
+        else:
+            act_values = self.model.predict(state)
+            action = np.argmax(act_values[0])
+        self.last_action = action
+        return action
+```
+
+7. **Memory Storage**:
+    - `memorize` method stores experience tuples in the memory buffer.
+
+8. **Action Selection**:
+    - `act` method determines the action based on:
+        - If the last action was idle, the next action must be conventional charging.
+        - If a random number is less than `epsilon`, it selects a random action (exploration).
+        - Otherwise, it uses the model to predict Q-values and selects the action with the highest Q-value (exploitation).
+
+### Training and Replay
+
+```python
+    def replay(self, batch_size):
+        minibatch = random.sample(self.memory, batch_size)
+        for state, action, reward, next_state, done in minibatch:
+            target = reward
+            if not done:
+                target = (reward + self.gamma * np.amax(self.model.predict(next_state)[0]))
+            target_f = self.model.predict(state)
+            target_f[0][action] = target
+            self.model.fit(state, target_f, epochs=1, verbose=0)
+            
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+```
+
+9. **Replay Memory**:
+    - `replay` method samples a minibatch from memory and updates the Q-values using the Bellman equation.
+    - The target value is the reward plus the discounted maximum future reward, unless the episode is done.
+    - The model is trained on the target values for the selected actions.
+    - `epsilon` is decayed after each training step.
+
+### Saving and Loading Weights
+
+```python
+    def load(self, name):
+        if os.path.exists(name):
+            self.model.load_weights(name)
+        else:
+            print(f"File {name} does not exist.")
+
+    def save(self, name):
+        self.model.save_weights(name)
+```
+
+10. **Model Weights Management**:
+    - `load` method loads model weights from a file if it exists.
+    - `save` method saves model weights to a file.
+
+### Main Training Loop
+
+```python
+if __name__ == "__main__":
+    env = gym.make('EVCharging-v0')
+    state_size = env.observation_space.shape[0]
+    action_size = env.action_space.n
+    agent = DQNAgent(state_size, action_size)
+    agent.load("./save/evcharging-dqn.weights.h5")
+    done = False
+    batch_size = 32
+
+    for e in range(EPISODES):
+        state = env.reset()
+        state = np.reshape(state, [1, state_size])
+        cumulative_reward = 0
+        action_counts = np.zeros(action_size)
+
+        for time in range(1440):  # 1440 minutes in a day
+            env.render()
+            action = agent.act(state)
+            action_counts[action] += 1
+            next_state, reward, done, _ = env.step(action)
+            cumulative_reward += reward
+            print(f"Each reward: {reward}")
+            reward = reward if not done else -10
+            next_state = np.reshape(next_state, [1, state_size])
+            agent.memorize(state, action, reward, next_state, done)
+            state = next_state
+            if done:
+                print(f"episode: {e}/{EPISODES}, score: {time}, e: {agent.epsilon:.2}, Cumulative Reward: {cumulative_reward:.2f}")
+                break
+            if len(agent.memory) > batch_size:
+                agent.replay(batch_size)
+        print(f"Episode: {e} Action Distribution: {action_counts}")
+        if e % 10 == 0:
+            agent.save("./save/evcharging-dqn.weights.h5")
+            print("Saved")
+```
+
+11. **Main Loop**:
+    - Creates the environment and initializes the agent.
+    - Loads existing weights if available.
+    - Runs for `EPISODES` number of episodes.
+
+12. **Episode Loop**:
+    - Resets the environment and reshapes the state.
+    - Tracks cumulative reward and action counts.
+    - For each time step in a day (1440 minutes):
+        - Renders the environment.
+        - Selects and performs an action.
+        - Updates the cumulative reward.
+        - Stores the experience in memory.
+        - Checks for the end of the episode.
+        - Trains the agent using experience replay if memory size exceeds the batch size.
+
+13. **Periodic Saving**:
+    - Saves model weights every 10 episodes.
+
+This code implements a DQN agent to learn optimal charging strategies in an EV charging environment by interacting with the environment, storing experiences, and training a neural network to predict Q-values.

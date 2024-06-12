@@ -44,10 +44,10 @@ class EVChargingEnv(gym.Env):
     
     def step(self, action):
         SoC, hour, minute, charging_mode = self.state
-        tp = 0.25   #time period
-        P_c = 7     # conventional charging power
-        P_f = 22    #fast charging power
-        Q_b = 22      # battery capacity
+        tp = 0.25   #time period in hours
+        P_c = 7     # conventional charging power in kW
+        P_f = 22    #fast charging power in kW
+        Q_b = 110      # battery capacity in kWh
         
         # Apply action and update state
         if action == 0:  # Idle

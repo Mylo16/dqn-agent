@@ -47,17 +47,17 @@ class EVChargingEnv(gym.Env):
         tp = 0.25   #time period in hours
         P_c = 7     # conventional charging power in kW
         P_f = 22    #fast charging power in kW
-        Q_b = 110      # battery capacity in kWh
+        Q_b = 100      # battery capacity in kWh
         
         # Apply action and update state
         if action == 0:  # Idle
             charging_mode = 0
         elif action == 1:  # Conventional charging
             charging_mode = 1
-            SoC += (tp * P_c)/(100 * Q_b)
+            SoC += (tp * P_c)/Q_b
         elif action == 2:  # Fast charging
             charging_mode = 2
-            SoC += (tp * P_f)/(100 * Q_b)
+            SoC += (tp * P_f)/Q_b
         
         # Time progression
         minute *= 60
